@@ -1,0 +1,102 @@
+name:                sc-build
+version:             0.1.0.0
+#synopsis:
+#description:
+homepage:            https://github.com/ilyakooo0/sc-build#readme
+license:             BSD3
+author:              Ilya Kostyuchenko
+maintainer:          ilyakooo0@gmail.com
+copyright:           Ilya Kostyuchenko
+category:            Web
+extra-source-files:
+- README.md
+
+dependencies:
+- base >= 4.7 && < 5
+
+library:
+  source-dirs: src
+  dependencies:
+  - servant
+  - servant-server
+  - process
+  - yaml
+  - aeson
+  - github
+  - github-app
+  - github-webhooks
+  - warp
+  - vector
+  - bytestring
+  - servant-github-webhook
+  - cryptonite
+  - mtl
+  - text
+  - containers
+  - random
+  - time
+  - typed-process
+  - directory
+  - squeal-postgresql
+  - generics-sop
+  - co-log
+  - unliftio-core
+  - unliftio
+  - servant-blaze
+  - blaze-markup
+  - blaze-html
+  - clay
+
+executables:
+  sc-build-exe:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - sc-build
+  sc-build-migrations:
+    main:                Main.hs
+    source-dirs:         migrations
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - sc-build
+    - bytestring
+    - squeal-postgresql
+
+default-extensions:
+- AllowAmbiguousTypes
+- ConstraintKinds
+- DataKinds
+- DeriveAnyClass
+- DeriveFunctor
+- DeriveGeneric
+- DerivingStrategies
+- DuplicateRecordFields
+- FlexibleContexts
+- FlexibleInstances
+- FunctionalDependencies
+- GADTs
+- GeneralizedNewtypeDeriving
+- InstanceSigs
+- LambdaCase
+- MultiParamTypeClasses
+- OverloadedLabels
+- OverloadedStrings
+- PatternSynonyms
+- PolyKinds
+- QuantifiedConstraints
+- RankNTypes
+- RecordWildCards
+- ScopedTypeVariables
+- StandaloneDeriving
+- TupleSections
+- TypeApplications
+- TypeFamilies
+- TypeOperators
+- UndecidableInstances
