@@ -46,6 +46,9 @@ library:
   - blaze-markup
   - blaze-html
   - clay
+  - docker
+  - exceptions
+  - transformers
 
 executables:
   sc-build-exe:

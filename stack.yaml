@@ -46,6 +46,8 @@ extra-deps:
 - git: https://github.com/ilyakooo0/github-app
   commit: 0bede85ab53eb8f953cf6f4e58a756a205e88e0b
 - servant-github-webhook-0.4.2.0
+- docker-0.6.0.2
+- http-client-0.5.14
 
 # Override default flag values for local packages and extra-deps
 # flags: {}

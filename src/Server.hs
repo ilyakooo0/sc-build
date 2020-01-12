@@ -99,7 +99,7 @@ webhookPushEvent _ ((), ev) = do
           (T.unpack name)
           (T.unpack sha)
           (Jsonb BuildScheduled)
-      scheduleTask $ Build prebuild build (N owner) (N repoName) (N sha)
+      scheduleTask $ Build prebuild dockerfile (N owner) (N repoName) (N sha)
       liftIO $ do
         print ev
         hFlush stdout
@@ -127,7 +127,7 @@ retestSubmission owner repoName sha = do
         Just (name, TaskConfig {..}) | T.take (T.length name) repoName' == name -> do
           scheduleTask $ StatusUpdate (N owner') (N repoName') (N sha') pendingStatus
           updateSubmissionStatus fullRepoName sha BuildScheduled
-          scheduleTask $ Build prebuild build (N owner') (N repoName') (N sha')
+          scheduleTask $ Build prebuild dockerfile (N owner') (N repoName') (N sha')
         _ -> return ()
   redirectToSubmission owner repoName sha
 
@@ -157,7 +157,7 @@ runServer = do
   pool <- createConnectionPool databseUrl 1 0.5 10
   _ <- forkIO $ do
     updateTasks ts tasksPath
-    threadDelay $ 10 * 60 * (10 ^ (6 :: Int))
+    threadDelay $ 5 * 60 * (10 ^ (6 :: Int))
   let context =
         gitPolyHubKey (return webhookSecret)
           :. EmptyContext
@@ -167,7 +167,8 @@ runServer = do
           githubAccessToken = GithubAccessToken personalAccessToken,
           tasks = ts,
           logger = simpleMessageAction,
-          baseUrl = baseSiteUrl
+          baseUrl = baseSiteUrl,
+          dockerUrl = T.pack cfgDockerUrl
         }
       repeatIfNotEmpty n f = f >>= \m -> do
         when (m == 0) $ liftIO $ threadDelay n
@@ -204,7 +205,8 @@ data ServerData m
         githubAccessToken :: !GithubAccessToken,
         tasks :: IORef TasksConfig,
         logger :: LogAction m Message,
-        baseUrl :: String
+        baseUrl :: String,
+        dockerUrl :: T.Text
       }
 
 newtype PolyGitHubKey = PolyGitHubKey (forall result. GitHubKey result)
@@ -232,12 +234,16 @@ instance MonadReader (ServerData n) m => MonadHasBaseUrl m where
 instance (MonadIO m, MonadReader (ServerData n) m) => HasTasks m where
   getTasks = asks tasks >>= liftIO . readIORef
 
+instance (MonadReader (ServerData n) m) => HasDockerInfo m where
+  getDockerUrl = asks dockerUrl
+
 type TasksConfig = Map T.Text TaskConfig
 
 data TaskConfig
   = TaskConfig
       { prebuild :: String,
-        build :: String
+        dockerfile :: String
+        -- build :: T.Text
       }
   deriving stock (Show, Eq, Generic)
   deriving anyclass (FromJSON, ToJSON)

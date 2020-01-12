@@ -1,0 +1,10 @@
+test-task:
+  prebuild: |
+    cp -f ../../test-task/package.yaml .
+    cp -f ../../test-task/stack.yaml .
+    cp -f -R ../../test-task/test .
+  dockerfile: |
+    FROM fast-lts-14.20
+    COPY . src
+    WORKDIR /src
+    ENTRYPOINT stack test --fast

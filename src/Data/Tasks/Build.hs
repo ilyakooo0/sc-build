@@ -3,12 +3,13 @@
 
 module Data.Tasks.Build
   ( Build (..),
+    HasDockerInfo (..),
   )
 where
 
 import Colog
 import Control.GithubCloner
-import Control.Monad.IO.Class
+import Control.Monad.Except
 import Control.Monad.IO.Unlift
 import Control.Task
 import Control.Task.Scheduler
@@ -21,6 +22,7 @@ import Data.Submission.Query
 import Data.Tasks.StatusUpdate
 import qualified Data.Text as T
 import Data.Time.Clock.POSIX
+import qualified Docker.Client as D
 import GHC.Generics
 import GitHub
 import Server.Schema
@@ -33,7 +35,7 @@ import UnliftIO.Exception
 data Build
   = Build
       { preProcessShell :: String,
-        buildCommand :: String,
+        dockerFile :: String,
         owner :: Name Owner,
         repoName :: Name Repo,
         sha :: Name Commit
@@ -42,7 +44,7 @@ data Build
 
 instance Task Build "build-repo" where
 
-  type TaskMonad Build m = (MonadUnliftIO m, GithubCloner m, StaticPQ m)
+  type TaskMonad Build m = (MonadUnliftIO m, GithubCloner m, StaticPQ m, HasDockerInfo m)
 
   performTask Build {..} =
     bracket createDir (liftIO . removePathForcibly) $ \dir -> do
@@ -63,10 +65,38 @@ instance Task Build "build-repo" where
           scheduleTask erroredTask
           updateSubmissionStatus fullRepoName sha' (SubmissionFailed err)
         ExitSuccess -> do
-          (buildCode, buildOut, buildErr) <- readProcess . setWorkingDir dir . fromString $ buildCommand
-          case buildCode of
-            ExitFailure n -> do
-              let err = BS.unpack buildErr
+          h <- liftIO D.defaultHttpHandler
+          dUrl <- getDockerUrl
+          let opts = D.defaultCreateOpts imageName
+              runDocker :: forall a m. MonadIO m => D.DockerT IO a -> m a
+              runDocker = liftIO . D.runDockerT (D.defaultClientOpts {D.baseUrl = dUrl}, h)
+              imageName = T.pack dir
+          liftIO $ writeFile (dir <> "/Dockerfile") dockerFile
+          absDir <- liftIO $ makeAbsolute dir
+          let waitDockerForever cid =
+                D.waitContainer cid >>= \case
+                  Left D.GenericDockerError {} -> waitDockerForever cid
+                  a -> return a
+          dockerRes <- runDocker . runExceptT $ do
+            ExceptT $ D.buildImageFromDockerfile (D.defaultBuildOpts imageName) absDir
+            cid <- ExceptT $ D.createContainer opts Nothing
+            ExceptT $ D.startContainer D.defaultStartOpts cid
+            buildCode <- ExceptT $ waitDockerForever cid
+            buildOut <-
+              ExceptT $
+                D.getContainerLogs
+                  D.LogOpts
+                    { stdout = True,
+                      stderr = False,
+                      since = Nothing,
+                      timestamps = False,
+                      tail = D.All
+                    }
+                  cid
+            return (buildCode, buildOut)
+          case dockerRes of
+            Right (ExitFailure n, buildOut) -> do
+              let err = BS.unpack buildOut
               logError . T.pack $
                 "test command for repo " <> show fullRepoName <> " at sha "
                   <> show sha
@@ -76,10 +106,15 @@ instance Task Build "build-repo" where
                   <> err
               scheduleTask erroredTask
               updateSubmissionStatus fullRepoName sha' (SubmissionFailed err)
-            ExitSuccess ->
-              case decode buildOut of
-                Nothing -> do
-                  let err = BS.unpack buildOut
+            Left err' -> do
+              let err = show err'
+              logError . T.pack $ err
+              scheduleTask erroredTask
+              updateSubmissionStatus fullRepoName sha' (SubmissionFailed err)
+            Right (ExitSuccess, buildOut) ->
+              case eitherDecode' (BS.dropWhile (/= '{') buildOut) of
+                Left err' -> do
+                  let err = err' <> " " <> BS.unpack buildOut
                   logError . T.pack $
                     "could not decode test result from repo " <> show fullRepoName
                       <> " at sha "
@@ -88,7 +123,7 @@ instance Task Build "build-repo" where
                       <> err
                   scheduleTask erroredTask
                   updateSubmissionStatus fullRepoName sha' (SubmissionFailed err)
-                Just testResult@TestResult {..} -> do
+                Right testResult@TestResult {..} -> do
                   let total = M.size tests
                       passed = M.size . M.filter id $ tests
                       description = T.pack $ show passed <> "/" <> show total
@@ -131,3 +166,6 @@ getTmpDirName = liftIO $ do
   time :: Integer <- round <$> getPOSIXTime
   i <- randomIO @Int
   return $ show time <> "-" <> show i
+
+class HasDockerInfo m where
+  getDockerUrl :: m T.Text

@@ -27,7 +27,9 @@ data Config
         githubUsername :: !String,
         tasksPath :: !FilePath,
         databseUrl :: !ByteString,
-        baseSiteUrl :: !String
+        baseSiteUrl :: !String,
+        cfgDockerUrl :: !String,
+        cfgDockerFile :: !FilePath
       }
   deriving (Show)
 
@@ -44,6 +46,8 @@ getConfig =
     <*> (fromMaybe (error "no TASKS") <$> lookupEnv "TASKS")
     <*> (maybe (error "no DATABASE_URL") BS8.pack <$> lookupEnv "DATABASE_URL")
     <*> (fromMaybe "http://localhost:8080" <$> lookupEnv "PORT")
+    <*> (fromMaybe "http://localhost:1234" <$> lookupEnv "DOCKER_URL")
+    <*> (fromMaybe "TmpDockerfile" <$> lookupEnv "DOCKER_FILE")
   where
     readPem :: IO PrivateKey
     readPem = do

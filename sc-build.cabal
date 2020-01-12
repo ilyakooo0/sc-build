@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: bb953e6231fcc3939bfe085afcd3e792cbc40462461bbe4fb82ae69f1796be4c
+-- hash: 56eccc7f4958f234614ddcff75d3b965ad9a29747591e1e71b73d56faaf48d1c
 
 name:           sc-build
 version:        0.1.0.0
@@ -52,6 +52,8 @@ library
     , containers
     , cryptonite
     , directory
+    , docker
+    , exceptions
     , generics-sop
     , github
     , github-app
@@ -66,6 +68,7 @@ library
     , squeal-postgresql
     , text
     , time
+    , transformers
     , typed-process
     , unliftio
     , unliftio-core
