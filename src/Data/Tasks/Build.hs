@@ -8,6 +8,7 @@ module Data.Tasks.Build
 where
 
 import Colog
+import Control.Concurrent
 import Control.GithubCloner
 import Control.Monad.Except
 import Control.Monad.IO.Unlift
@@ -30,6 +31,7 @@ import System.Directory
 import System.Exit
 import System.Process.Typed
 import System.Random
+import UnliftIO.Async
 import UnliftIO.Exception
 
 data Build
@@ -38,7 +40,8 @@ data Build
         dockerFile :: String,
         owner :: Name Owner,
         repoName :: Name Repo,
-        sha :: Name Commit
+        sha :: Name Commit,
+        timeoutMinutes :: Int
       }
   deriving (Eq, Show, Generic, FromJSON, ToJSON)
 
@@ -46,9 +49,7 @@ instance Task Build "build-repo" where
   type TaskMonad Build m = (MonadUnliftIO m, GithubCloner m, StaticPQ m, HasDockerInfo m)
 
   performTask Build {..} =
-    bracket createDir (liftIO . removePathForcibly) $ \dir -> do
-      let fullRepoName = T.unpack $ untagName owner <> "/" <> untagName repoName
-          sha' = T.unpack $ untagName sha
+    bracket createDir (liftIO . removePathForcibly) $ \dir -> flip catchAny (const $ return Failure) $ do
       cloneRepo fullRepoName sha' dir
       (shellCode, _, shellErr) <- readProcess . setWorkingDir dir $ shell preProcessShell
       case shellCode of
@@ -67,8 +68,16 @@ instance Task Build "build-repo" where
           h <- liftIO D.defaultHttpHandler
           dUrl <- getDockerUrl
           let opts = D.defaultCreateOpts imageName
-              runDocker :: forall a m. MonadIO m => D.DockerT IO a -> m a
-              runDocker = liftIO . D.runDockerT (D.defaultClientOpts {D.baseUrl = dUrl}, h)
+              runDocker ::
+                ( MonadIO m,
+                  Exception err,
+                  WithLog env Message m,
+                  StaticPQ m,
+                  MonadUnliftIO m
+                ) =>
+                D.DockerT IO (Either err a) ->
+                m a
+              runDocker = runEither <=< liftIO . D.runDockerT (D.defaultClientOpts {D.baseUrl = dUrl}, h)
               imageName = T.pack dir
           liftIO $ writeFile (dir <> "/Dockerfile") dockerFile
           absDir <- liftIO $ makeAbsolute dir
@@ -76,25 +85,37 @@ instance Task Build "build-repo" where
                 D.waitContainer cid >>= \case
                   Left D.GenericDockerError {} -> waitDockerForever cid
                   a -> return a
-          dockerRes <- runDocker . runExceptT $ do
+          cid <- runDocker . runExceptT $ do
             ExceptT $ D.buildImageFromDockerfile (D.defaultBuildOpts imageName) absDir
-            cid <- ExceptT $ D.createContainer opts Nothing
-            ExceptT $ D.startContainer D.defaultStartOpts cid
-            buildCode <- ExceptT $ waitDockerForever cid
-            buildOut <-
-              ExceptT $
-                D.getContainerLogs
-                  D.LogOpts
-                    { stdout = True,
-                      stderr = False,
-                      since = Nothing,
-                      timestamps = False,
-                      tail = D.All
-                    }
-                  cid
-            return (buildCode, buildOut)
+            ExceptT $ D.createContainer opts Nothing
+          dockerRes <- fmap (either id id)
+            . race (liftIO (threadDelay (timeoutMinutes * 60000000)) >> return (ExitFailure 1, "Time out"))
+            $ flip
+              finally
+              ( runDocker $
+                  D.deleteContainer
+                    D.ContainerDeleteOpts {deleteVolumes = True, force = True}
+                    cid
+              )
+              . runDocker
+              . runExceptT
+            $ do
+              ExceptT $ D.startContainer D.defaultStartOpts cid
+              buildCode <- ExceptT $ waitDockerForever cid
+              buildOut <-
+                ExceptT $
+                  D.getContainerLogs
+                    D.LogOpts
+                      { stdout = True,
+                        stderr = False,
+                        since = Nothing,
+                        timestamps = False,
+                        tail = D.All
+                      }
+                    cid
+              return (buildCode, buildOut)
           case dockerRes of
-            Right (ExitFailure n, buildOut) -> do
+            (ExitFailure n, buildOut) -> do
               let err = BS.unpack buildOut
               logError . T.pack $
                 "test command for repo " <> show fullRepoName <> " at sha "
@@ -105,12 +126,7 @@ instance Task Build "build-repo" where
                   <> err
               scheduleTask erroredTask
               updateSubmissionStatus fullRepoName sha' (SubmissionFailed err)
-            Left err' -> do
-              let err = show err'
-              logError . T.pack $ err
-              scheduleTask erroredTask
-              updateSubmissionStatus fullRepoName sha' (SubmissionFailed err)
-            Right (ExitSuccess, buildOut) ->
+            (ExitSuccess, buildOut) ->
               case eitherDecode' (BS.dropWhile (/= '{') buildOut) of
                 Left err' -> do
                   let err = err' <> " " <> BS.unpack buildOut
@@ -148,6 +164,23 @@ instance Task Build "build-repo" where
               newStatusDescription = Just "Build failed",
               newStatusContext = Nothing
             }
+      fullRepoName = T.unpack $ untagName owner <> "/" <> untagName repoName
+      sha' = T.unpack $ untagName sha
+      runEither ::
+        ( Exception err,
+          WithLog env Message m,
+          StaticPQ m,
+          MonadUnliftIO m
+        ) =>
+        Either err b ->
+        m b
+      runEither (Left err) = do
+        let err' = show err
+        logError $ T.pack err'
+        scheduleTask erroredTask
+        updateSubmissionStatus fullRepoName sha' (SubmissionFailed err')
+        throwIO err
+      runEither (Right a) = return a
 
 createDir :: MonadIO m => m FilePath
 createDir = do
@@ -172,3 +205,5 @@ getTmpDirName = liftIO $ do
 
 class HasDockerInfo m where
   getDockerUrl :: m T.Text
+
+instance Exception D.DockerError

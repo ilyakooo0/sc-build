@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wno-orphans #-}
+
 module Server.Html
   ( getSubmissionR,
     MonadHasBaseUrl (..),
@@ -8,17 +10,12 @@ where
 
 import Clay as C
 import Colog
-import Control.Monad.IO.Class
 import Control.Monad.IO.Unlift
-import Data.Aeson hiding (Success)
-import qualified Data.ByteString.Lazy.Char8 as BS
 import Data.Foldable
 import qualified Data.Map as M
 import Data.String
 import Data.Submission
 import Data.Submission.Query
-import qualified Data.Text as T
-import GHC.Generics
 import Server.Schema
 import Squeal.PostgreSQL (Jsonb (..))
 import Text.Blaze
@@ -32,12 +29,12 @@ getSubmissionR ::
   String ->
   String ->
   m Markup
-getSubmissionR user repo sha = do
-  restartUrl <- (<> "/restart") <$> getUrl (user <> "/" <> repo) sha
+getSubmissionR user repo sha' = do
+  restartUrl <- (<> "/restart") <$> getUrl (user <> "/" <> repo) sha'
   let restartBuild = do
         H.form H.! A.action (fromString restartUrl) H.! A.method "post" $
           H.input H.! A.type_ "submit" H.! A.value "Restart test"
-  (titleText, inner) <- getSubmission (user <> "/" <> repo) sha >>= \case
+  (titleText, inner) <- getSubmission (user <> "/" <> repo) sha' >>= \case
     Nothing ->
       return . ("Not found",) $
         H.h1 "404. not found. go away."

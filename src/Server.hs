@@ -44,7 +44,7 @@ import Server.Schema
 import Squeal.PostgreSQL
 import System.IO
 import Text.Blaze.Html
-import UnliftIO.Exception (try)
+import UnliftIO.Exception (catch, throwIO, try)
 
 type API =
   "github-webhook"
@@ -52,8 +52,8 @@ type API =
            :> GitHubSignedReqBody '[JSON] InstallationEvent
            :> Post '[JSON] ()
            :<|> GitHubEvent '[ 'WebhookPushEvent]
-             :> GitHubSignedReqBody '[JSON] PushEvent
-             :> Post '[JSON] ()
+           :> GitHubSignedReqBody '[JSON] PushEvent
+           :> Post '[JSON] ()
        )
     :<|> "submission"
       :> Capture "user name" String
@@ -78,7 +78,7 @@ pendingStatus :: NewStatus
 pendingStatus = NewStatus StatusPending Nothing Nothing Nothing
 
 webhookPushEvent ::
-  (StaticPQ m, WithLog env Message m, MonadUnliftIO m, HasTasks m) =>
+  (StaticPQ m, WithLog env Message m, MonadUnliftIO m, HasTasks m, MonadError ServerError m) =>
   RepoWebhookEvent ->
   ((), PushEvent) ->
   m ()
@@ -86,8 +86,10 @@ webhookPushEvent _ ((), ev) = do
   let repo = evPushRepository ev
       user = T.unpack . whUserLogin . evPushSender $ ev
       fullRepoName = whRepoFullName repo
-      [owner, repoName] = T.splitOn "/" fullRepoName
-      Just sha = evPushHeadSha ev
+  (owner, repoName) <- case T.splitOn "/" fullRepoName of
+    [a, b] -> return (a, b)
+    _ -> throwError err422
+  sha <- maybe (throwError err422) return $ evPushHeadSha ev
   tasks <- getTasks
   let task =
         M.lookupMax $
@@ -102,7 +104,7 @@ webhookPushEvent _ ((), ev) = do
           (T.unpack name)
           (T.unpack sha)
           (Jsonb BuildScheduled)
-      scheduleTask $ Build prebuild dockerfile (N owner) (N repoName) (N sha)
+      scheduleTask $ Build prebuild dockerfile (N owner) (N repoName) (N sha) timeoutMinutes
       liftIO $ do
         print ev
         hFlush stdout
@@ -130,7 +132,7 @@ retestSubmission owner repoName sha = do
         Just (name, TaskConfig {..}) | T.take (T.length name) repoName' == name -> do
           scheduleTask $ StatusUpdate (N owner') (N repoName') (N sha') pendingStatus
           updateSubmissionStatus fullRepoName sha BuildScheduled
-          scheduleTask $ Build prebuild dockerfile (N owner') (N repoName') (N sha')
+          scheduleTask $ Build prebuild dockerfile (N owner') (N repoName') (N sha') timeoutMinutes
         _ -> return ()
   redirectToSubmission owner repoName sha
 
@@ -148,6 +150,10 @@ newtype ServerM (schema :: SchemasType) a
       MonadUnliftIO
     )
 
+instance MonadError ServerError (ServerM schema) where
+  throwError = throwIO
+  catchError = catch
+
 server :: ServerT API (ServerM Schema)
 server = (webhookInstallation :<|> webhookPushEvent) :<|> getSubmissionR :<|> retestSubmission :<|> getResults
 
@@ -164,15 +170,16 @@ runServer = do
   let context =
         gitPolyHubKey (return webhookSecret)
           :. EmptyContext
-      serverData = ServerData
-        { githubAppAuth = auth,
-          githubUserName = GithubUserName githubUsername,
-          githubAccessToken = GithubAccessToken personalAccessToken,
-          tasks = ts,
-          logger = cfilter ((logSeverity <=) . msgSeverity) richMessageAction,
-          baseUrl = baseSiteUrl,
-          dockerUrl = T.pack cfgDockerUrl
-        }
+      serverData =
+        ServerData
+          { githubAppAuth = auth,
+            githubUserName = GithubUserName githubUsername,
+            githubAccessToken = GithubAccessToken personalAccessToken,
+            tasks = ts,
+            logger = cfilter ((logSeverity <=) . msgSeverity) richMessageAction,
+            baseUrl = baseSiteUrl,
+            dockerUrl = T.pack cfgDockerUrl
+          }
       repeatIfNotEmpty n f = f >>= \m -> do
         when (m == 0) $ liftIO $ threadDelay n
         repeatIfNotEmpty n f
@@ -221,7 +228,6 @@ instance HasContextEntry '[PolyGitHubKey] (GitHubKey result) where
   getContextEntry (PolyGitHubKey x :. _) = x
 
 instance MonadReader (ServerData n) m => GithubCloner m where
-
   getGithubAccessToken = asks githubAccessToken
 
   getGithubUserName = asks githubUserName
@@ -245,8 +251,8 @@ type TasksConfig = Map T.Text TaskConfig
 data TaskConfig
   = TaskConfig
       { prebuild :: String,
-        dockerfile :: String
-        -- build :: T.Text
+        dockerfile :: String,
+        timeoutMinutes :: Int
       }
   deriving stock (Show, Eq, Generic)
   deriving anyclass (FromJSON, ToJSON)
@@ -255,7 +261,6 @@ class HasTasks m where
   getTasks :: m TasksConfig
 
 instance HasLog (ServerData m) Message m where
-
   getLogAction :: ServerData m -> LogAction m Message
   getLogAction = logger
   {-# INLINE getLogAction #-}
