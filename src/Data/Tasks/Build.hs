@@ -43,7 +43,6 @@ data Build
   deriving (Eq, Show, Generic, FromJSON, ToJSON)
 
 instance Task Build "build-repo" where
-
   type TaskMonad Build m = (MonadUnliftIO m, GithubCloner m, StaticPQ m, HasDockerInfo m)
 
   performTask Build {..} =
@@ -127,24 +126,28 @@ instance Task Build "build-repo" where
                   let total = M.size tests
                       passed = M.size . M.filter id $ tests
                       description = T.pack $ show passed <> "/" <> show total
-                      status = statusTask NewStatus
-                        { newStatusState =
-                            if total == passed then StatusSuccess else StatusFailure,
-                          newStatusTargetUrl = Nothing,
-                          newStatusDescription = Just description,
-                          newStatusContext = Nothing
-                        }
+                      status =
+                        statusTask
+                          NewStatus
+                            { newStatusState =
+                                if total == passed then StatusSuccess else StatusFailure,
+                              newStatusTargetUrl = Nothing,
+                              newStatusDescription = Just description,
+                              newStatusContext = Nothing
+                            }
                   scheduleTask status
                   updateSubmissionStatus fullRepoName sha' (SubmissionRun testResult)
       return Success
     where
       statusTask = StatusUpdate owner repoName sha
-      erroredTask = statusTask $ NewStatus
-        { newStatusState = StatusError,
-          newStatusTargetUrl = Nothing,
-          newStatusDescription = Just "Build failed",
-          newStatusContext = Nothing
-        }
+      erroredTask =
+        statusTask $
+          NewStatus
+            { newStatusState = StatusError,
+              newStatusTargetUrl = Nothing,
+              newStatusDescription = Just "Build failed",
+              newStatusContext = Nothing
+            }
 
 createDir :: MonadIO m => m FilePath
 createDir = do

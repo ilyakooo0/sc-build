@@ -2,10 +2,13 @@ module Data.Submission
   ( Submission (..),
     SubmissionStatus (..),
     TestResult (..),
+    Score (..),
   )
 where
 
 import Data.Aeson
+import Data.Csv
+import Data.Int
 import Data.Map (Map)
 import Data.Text (Text)
 import GHC.Generics (Generic)
@@ -34,3 +37,10 @@ newtype TestResult
       }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)
+
+data Score
+  = Score
+      { userName :: String,
+        score :: Int64
+      }
+  deriving (Eq, Show, Generic, SOP.Generic, SOP.HasDatatypeInfo, ToRecord)

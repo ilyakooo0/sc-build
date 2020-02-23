@@ -6,6 +6,7 @@ module Server.Config
   )
 where
 
+import Colog
 import Crypto.PubKey.RSA (PrivateKey)
 import Crypto.PubKey.RSA.Read
 import Data.ByteString as BS
@@ -29,7 +30,8 @@ data Config
         databseUrl :: !ByteString,
         baseSiteUrl :: !String,
         cfgDockerUrl :: !String,
-        cfgDockerFile :: !FilePath
+        cfgDockerFile :: !FilePath,
+        logSeverity :: !Severity
       }
   deriving (Show)
 
@@ -48,6 +50,7 @@ getConfig =
     <*> (fromMaybe "http://localhost:8080" <$> lookupEnv "PORT")
     <*> (fromMaybe "http://localhost:1234" <$> lookupEnv "DOCKER_URL")
     <*> (fromMaybe "TmpDockerfile" <$> lookupEnv "DOCKER_FILE")
+    <*> (maybe Info read <$> lookupEnv "LOG_SEVERITY")
   where
     readPem :: IO PrivateKey
     readPem = do

@@ -4,6 +4,7 @@ module Data.Submission.Query
   ( createSubmission,
     updateSubmissionStatus,
     getSubmission,
+    getResults,
   )
 where
 
@@ -83,3 +84,16 @@ getSubmission repoFullName sha = do
       query
       (repoFullName, sha)
       >>= firstRow
+
+getResults ::
+  (StaticPQ m, WithLog env Message m, MonadUnliftIO m) =>
+  String ->
+  m [Score]
+getResults task = do
+  let query :: Query_ Schema (Only String) Score
+      query = UnsafeQuery "select a.user_name as \"userName\", max(a.correct) as score from (select (select count(*) as correct from jsonb_each_text(submissions.status -> 'contents' -> 'tests') where value = 'true'), user_name from submissions where problem = $1) as a group by user_name"
+  dbRead (const $ return []) $
+    runQueryParams
+      query
+      (Only task)
+      >>= getRows

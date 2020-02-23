@@ -16,6 +16,7 @@ import Control.Monad.Reader
 import Control.Task.Scheduler
 import Data.Aeson
 import Data.ByteString
+import qualified Data.Csv as Csv
 import Data.IORef
 import Data.Map (Map)
 import qualified Data.Map as M
@@ -26,12 +27,13 @@ import Data.Tasks.StatusUpdate
 import qualified Data.Text as T
 import Data.Yaml
 import GHC.Generics
-import GitHub
+import GitHub hiding (Accept)
 import GitHub.App.Auth
 import GitHub.App.Request
 import GitHub.Data.Name
 import GitHub.Data.Webhooks.Events
 import GitHub.Data.Webhooks.Payload
+import Network.HTTP.Media.MediaType
 import Network.Wai.Handler.Warp
 import Servant
 import Servant.GitHub.Webhook
@@ -64,6 +66,7 @@ type API =
       :> Capture "sha" String
       :> "restart"
       :> Post '[HTML] Markup
+    :<|> "results" :> Capture "task name" String :> Get '[CSV, HTML] [Score]
 
 webhookInstallation :: MonadIO m => RepoWebhookEvent -> ((), InstallationEvent) -> m ()
 webhookInstallation _ ((), ev) =
@@ -146,7 +149,7 @@ newtype ServerM (schema :: SchemasType) a
     )
 
 server :: ServerT API (ServerM Schema)
-server = (webhookInstallation :<|> webhookPushEvent) :<|> getSubmissionR :<|> retestSubmission
+server = (webhookInstallation :<|> webhookPushEvent) :<|> getSubmissionR :<|> retestSubmission :<|> getResults
 
 runServer :: IO ()
 runServer = do
@@ -166,7 +169,7 @@ runServer = do
           githubUserName = GithubUserName githubUsername,
           githubAccessToken = GithubAccessToken personalAccessToken,
           tasks = ts,
-          logger = simpleMessageAction,
+          logger = cfilter ((logSeverity <=) . msgSeverity) richMessageAction,
           baseUrl = baseSiteUrl,
           dockerUrl = T.pack cfgDockerUrl
         }
@@ -260,3 +263,11 @@ instance HasLog (ServerData m) Message m where
   setLogAction :: LogAction m Message -> ServerData m -> ServerData m
   setLogAction newLogAction env = env {logger = newLogAction}
   {-# INLINE setLogAction #-}
+
+data CSV
+
+instance Accept CSV where
+  contentType Proxy = "text" // "csv"
+
+instance Csv.ToRecord a => MimeRender CSV [a] where
+  mimeRender Proxy = Csv.encode
