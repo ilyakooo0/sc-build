@@ -49,6 +49,8 @@ library:
   - docker
   - exceptions
   - transformers
+  - cassava
+  - http-media
 
 executables:
   sc-build-exe:
