@@ -10,17 +10,15 @@ where
 import Colog
 import Control.Concurrent
 import Control.GithubCloner
+import Control.HasGithubStatus
 import Control.Monad.Except
 import Control.Monad.IO.Unlift
 import Control.Task
-import Control.Task.Scheduler
 import Data.Aeson hiding (Success)
 import qualified Data.ByteString.Lazy.Char8 as BS
-import qualified Data.Map as M
 import Data.String
 import Data.Submission
 import Data.Submission.Query
-import Data.Tasks.StatusUpdate
 import qualified Data.Text as T
 import Data.Time.Clock.POSIX
 import qualified Docker.Client as D
@@ -46,7 +44,9 @@ data Build
   deriving (Eq, Show, Generic, FromJSON, ToJSON)
 
 instance Task Build "build-repo" where
-  type TaskMonad Build m = (MonadUnliftIO m, StaticPQ m, HasDockerInfo m, GithubCloner m)
+  type
+    TaskMonad Build m =
+      (MonadUnliftIO m, StaticPQ m, HasDockerInfo m, GithubCloner m, HasGithubStatus m)
 
   performTask Build {..} =
     bracket createDir (liftIO . removePathForcibly) $ \dir -> flip catchAny (const $ return Failure) $ do
@@ -62,7 +62,7 @@ instance Task Build "build-repo" where
               <> show n
               <> " and error "
               <> err
-          scheduleTask erroredTask
+          scheduleFailedStatus err owner repoName sha
           updateSubmissionStatus fullRepoName sha' (SubmissionFailed err)
         ExitSuccess -> do
           h <- liftIO D.defaultHttpHandler
@@ -73,7 +73,8 @@ instance Task Build "build-repo" where
                   Exception err,
                   WithLog env Message m,
                   StaticPQ m,
-                  MonadUnliftIO m
+                  MonadUnliftIO m,
+                  HasGithubStatus m
                 ) =>
                 D.DockerT IO (Either err a) ->
                 m a
@@ -124,7 +125,7 @@ instance Task Build "build-repo" where
                   <> show n
                   <> " and error "
                   <> err
-              scheduleTask erroredTask
+              scheduleFailedStatus err owner repoName sha
               updateSubmissionStatus fullRepoName sha' (SubmissionFailed err)
             (ExitSuccess, buildOut) ->
               case eitherDecode' (BS.dropWhile (/= '{') buildOut) of
@@ -136,48 +137,28 @@ instance Task Build "build-repo" where
                       <> show sha
                       <> ": "
                       <> err
-                  scheduleTask erroredTask
+                  scheduleFailedStatus err owner repoName sha
                   updateSubmissionStatus fullRepoName sha' (SubmissionFailed err)
                 Right testResult@TestResult {..} -> do
-                  let total = M.size tests
-                      passed = M.size . M.filter id $ tests
-                      description = T.pack $ show passed <> "/" <> show total
-                      status =
-                        statusTask
-                          NewStatus
-                            { newStatusState =
-                                if total == passed then StatusSuccess else StatusFailure,
-                              newStatusTargetUrl = Nothing,
-                              newStatusDescription = Just description,
-                              newStatusContext = Nothing
-                            }
-                  scheduleTask status
+                  scheduleTestedStatus testResult owner repoName sha
                   updateSubmissionStatus fullRepoName sha' (SubmissionRun testResult)
       return Success
     where
-      statusTask = StatusUpdate owner repoName sha
-      erroredTask =
-        statusTask $
-          NewStatus
-            { newStatusState = StatusError,
-              newStatusTargetUrl = Nothing,
-              newStatusDescription = Just "Build failed",
-              newStatusContext = Nothing
-            }
       fullRepoName = T.unpack $ untagName owner <> "/" <> untagName repoName
       sha' = T.unpack $ untagName sha
       runEither ::
         ( Exception err,
           WithLog env Message m,
           StaticPQ m,
-          MonadUnliftIO m
+          MonadUnliftIO m,
+          HasGithubStatus m
         ) =>
         Either err b ->
         m b
       runEither (Left err) = do
         let err' = show err
         logError $ T.pack err'
-        scheduleTask erroredTask
+        scheduleFailedStatus err' owner repoName sha
         updateSubmissionStatus fullRepoName sha' (SubmissionFailed err')
         throwIO err
       runEither (Right a) = return a

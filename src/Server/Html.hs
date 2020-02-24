@@ -16,6 +16,7 @@ import qualified Data.Map as M
 import Data.String
 import Data.Submission
 import Data.Submission.Query
+import qualified Data.Text as T
 import Server.Schema
 import Squeal.PostgreSQL (Jsonb (..))
 import Text.Blaze
@@ -91,12 +92,12 @@ getSubmissionR user repo sha' = do
     H.body inner
 
 class MonadHasBaseUrl m where
-  getBaseUrl :: m String
+  getBaseUrl :: m T.Text
 
 getUrl :: (MonadHasBaseUrl m, Monad m) => String -> String -> m String
 getUrl fullName sha = do
   siteBase <- getBaseUrl
-  return $ siteBase <> "/submission/" <> fullName <> "/" <> sha
+  return $ T.unpack siteBase <> "/submission/" <> fullName <> "/" <> sha
 
 redirectToSubmission ::
   (MonadHasBaseUrl m, Monad m) =>

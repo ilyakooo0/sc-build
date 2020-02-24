@@ -28,11 +28,12 @@ data Config
         installationId :: !(Id Installation),
         tasksPath :: !FilePath,
         databseUrl :: !ByteString,
-        baseSiteUrl :: !String,
+        baseSiteUrl :: !Text,
         cfgDockerUrl :: !String,
         cfgDockerFile :: !FilePath,
         logSeverity :: !Severity,
-        builderCount :: !Int
+        builderCount :: !Int,
+        githubContext :: !Text
       }
   deriving (Show, Generic)
 
@@ -68,7 +69,8 @@ defaultConfig =
       cfgDockerUrl = "http://localhost:1234",
       cfgDockerFile = "TmpDockerfile",
       logSeverity = Info,
-      builderCount = 2
+      builderCount = 2,
+      githubContext = "MY CI NAME"
     }
 
 getConfig :: IO Config

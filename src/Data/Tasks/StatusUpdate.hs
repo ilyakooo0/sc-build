@@ -31,7 +31,6 @@ instance FromJSON NewStatus where
       <*> v .:? "context"
 
 instance Task StatusUpdate "update-commit-ci-status" where
-
   type TaskMonad StatusUpdate m = (AppRequestable m)
 
   performTask StatusUpdate {..} = do

@@ -10,6 +10,7 @@ import Colog
 import Control.AppRequestable
 import Control.Concurrent
 import Control.GithubCloner
+import Control.HasGithubStatus
 import Control.Monad.Except
 import Control.Monad.IO.Unlift
 import Control.Monad.Reader
@@ -37,7 +38,7 @@ import GitHub.App.Request
 import GitHub.Auth (Auth (OAuth))
 import GitHub.Data.Name
 import GitHub.Data.Webhooks.Events
-import GitHub.Data.Webhooks.Payload
+import GitHub.Data.Webhooks.Payload hiding (URL (..))
 import Network.HTTP.Client.TLS (newTlsManager)
 import Network.HTTP.Media.MediaType
 import Network.Wai.Handler.Warp
@@ -80,11 +81,8 @@ webhookInstallation _ ((), ev) =
     print ev
     hFlush stdout
 
-pendingStatus :: NewStatus
-pendingStatus = NewStatus StatusPending Nothing Nothing Nothing
-
 webhookPushEvent ::
-  (StaticPQ m, WithLog env Message m, MonadUnliftIO m, HasTasks m, MonadError ServerError m) =>
+  (StaticPQ m, MonadReader (ServerData m) m, MonadUnliftIO m, HasTasks m, MonadError ServerError m) =>
   RepoWebhookEvent ->
   ((), PushEvent) ->
   m ()
@@ -102,7 +100,7 @@ webhookPushEvent _ ((), ev) = do
           M.takeWhileAntitone (repoName >) tasks
   case task of
     Just (name, TaskConfig {..}) | T.take (T.length name) repoName == name -> do
-      scheduleTask $ StatusUpdate (N owner) (N repoName) (N sha) pendingStatus
+      schedulePendingStatus (N owner) (N repoName) (N sha)
       createSubmission $
         Submission
           user
@@ -117,7 +115,7 @@ webhookPushEvent _ ((), ev) = do
     _ -> return ()
 
 retestSubmission ::
-  (StaticPQ m, WithLog env Message m, MonadUnliftIO m, HasTasks m, MonadHasBaseUrl m) =>
+  (StaticPQ m, MonadReader (ServerData m) m, MonadUnliftIO m, HasTasks m, MonadHasBaseUrl m) =>
   String ->
   String ->
   String ->
@@ -136,7 +134,7 @@ retestSubmission owner repoName sha = do
               M.takeWhileAntitone (repoName' >) tasks
       case task of
         Just (name, TaskConfig {..}) | T.take (T.length name) repoName' == name -> do
-          scheduleTask $ StatusUpdate (N owner') (N repoName') (N sha') pendingStatus
+          schedulePendingStatus (N owner') (N repoName') (N sha')
           updateSubmissionStatus fullRepoName sha BuildScheduled
           scheduleTask $ Build prebuild dockerfile (N owner') (N repoName') (N sha') timeoutMinutes
         _ -> return ()
@@ -186,7 +184,8 @@ runServer = do
             tasks = ts,
             logger = cfilter ((logSeverity <=) . msgSeverity) richMessageAction,
             baseUrl = baseSiteUrl,
-            dockerUrl = T.pack cfgDockerUrl
+            dockerUrl = T.pack cfgDockerUrl,
+            context = githubContext
           }
       repeatIfNotEmpty n f = f >>= \m -> do
         when (m == 0) $ liftIO $ threadDelay n
@@ -230,8 +229,9 @@ data ServerData m
       { githubAppAuth :: !InstallationAuth,
         tasks :: IORef TasksConfig,
         logger :: LogAction m Message,
-        baseUrl :: String,
-        dockerUrl :: T.Text
+        baseUrl :: T.Text,
+        dockerUrl :: T.Text,
+        context :: T.Text
       }
 
 newtype PolyGitHubKey = PolyGitHubKey (forall result. GitHubKey result)
@@ -265,6 +265,56 @@ instance MonadReader (ServerData n) m => MonadHasBaseUrl m where
 
 instance (MonadIO m, MonadReader (ServerData n) m) => HasTasks m where
   getTasks = asks tasks >>= liftIO . readIORef
+
+instance (MonadReader (ServerData m) m, StaticPQ m, MonadUnliftIO m) => HasGithubStatus m where
+  schedulePendingStatus nOwner@(N owner) nRepo@(N repo) nCommit@(N sha) = do
+    h <- asks baseUrl
+    c <- asks context
+    scheduleTask $
+      StatusUpdate
+        nOwner
+        nRepo
+        nCommit
+        ( NewStatus
+            StatusPending
+            (Just . URL $ h <> "/submission/" <> owner <> "/" <> repo <> "/" <> sha)
+            Nothing
+            (Just c)
+        )
+  scheduleTestedStatus TestResult {..} nOwner@(N owner) nRepo@(N repo) nCommit@(N sha) = do
+    h <- asks baseUrl
+    c <- asks context
+    let total = M.size tests
+        passed = M.size . M.filter id $ tests
+        description = T.pack $ show passed <> "/" <> show total
+        status =
+          StatusUpdate
+            nOwner
+            nRepo
+            nCommit
+            NewStatus
+              { newStatusState =
+                  if total == passed then StatusSuccess else StatusFailure,
+                newStatusTargetUrl = Just . URL $ h <> "/submission/" <> owner <> "/" <> repo <> "/" <> sha,
+                newStatusDescription = Just description,
+                newStatusContext = Just c
+              }
+    scheduleTask status
+  scheduleFailedStatus _ nOwner@(N owner) nRepo@(N repo) nCommit@(N sha) = do
+    h <- asks baseUrl
+    c <- asks context
+    let status =
+          StatusUpdate
+            nOwner
+            nRepo
+            nCommit
+            NewStatus
+              { newStatusState = StatusError,
+                newStatusTargetUrl = Just . URL $ h <> "/submission/" <> owner <> "/" <> repo <> "/" <> sha,
+                newStatusDescription = Just "Build failed",
+                newStatusContext = Just c
+              }
+    scheduleTask status
 
 instance (MonadReader (ServerData n) m) => HasDockerInfo m where
   getDockerUrl = asks dockerUrl
