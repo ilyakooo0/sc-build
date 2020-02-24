@@ -278,7 +278,7 @@ instance (MonadReader (ServerData m) m, StaticPQ m, MonadUnliftIO m) => HasGithu
         ( NewStatus
             StatusPending
             (Just . URL $ h <> "/submission/" <> owner <> "/" <> repo <> "/" <> sha)
-            Nothing
+            (Just "⌛")
             (Just c)
         )
   scheduleTestedStatus TestResult {..} nOwner@(N owner) nRepo@(N repo) nCommit@(N sha) = do
@@ -286,7 +286,7 @@ instance (MonadReader (ServerData m) m, StaticPQ m, MonadUnliftIO m) => HasGithu
     c <- asks context
     let total = M.size tests
         passed = M.size . M.filter id $ tests
-        description = T.pack $ show passed <> "/" <> show total
+        description = T.pack $ show passed <> "/" <> show total <> if passed == total then " 🎉" else " 🍌"
         status =
           StatusUpdate
             nOwner
@@ -311,7 +311,7 @@ instance (MonadReader (ServerData m) m, StaticPQ m, MonadUnliftIO m) => HasGithu
             NewStatus
               { newStatusState = StatusError,
                 newStatusTargetUrl = Just . URL $ h <> "/submission/" <> owner <> "/" <> repo <> "/" <> sha,
-                newStatusDescription = Just "Build failed",
+                newStatusDescription = Just "Build failed ☠️",
                 newStatusContext = Just c
               }
     scheduleTask status
