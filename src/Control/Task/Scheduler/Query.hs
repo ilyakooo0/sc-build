@@ -5,6 +5,7 @@ module Control.Task.Scheduler.Query
     completeTaskQuery,
     rescheduleTaskQuery,
     pickTasksQuery,
+    makeAllRunnable,
     PickedTask (..),
   )
 where
@@ -132,3 +133,17 @@ data PickedTask
         creationTime :: UTCTime
       }
   deriving (Eq, Show, Generic, SOP.Generic, SOP.HasDatatypeInfo)
+
+makeAllRunnable ::
+  (StaticPQ m, WithLog env Message m, MonadUnliftIO m) =>
+  m ()
+makeAllRunnable = do
+  let startAll :: Manipulation_ Schema () ()
+      startAll =
+        update_
+          #tasks
+          ( Set false `as` #started
+          )
+          (notNull #started)
+  dbWrite (const $ return ()) $
+    manipulate_ startAll

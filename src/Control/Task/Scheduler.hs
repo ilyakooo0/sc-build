@@ -3,6 +3,7 @@
 module Control.Task.Scheduler
   ( scheduleTask,
     runTasks,
+    makeAllRunnable,
   )
 where
 
@@ -45,7 +46,6 @@ rescheduleTaskTime ::
 rescheduleTaskTime = rescheduleTaskQuery
 
 class RunTasks (ts :: [*]) m where
-
   runTask :: WithLog env Message m => PickedTask -> m ()
 
   taskNames :: [String]
@@ -55,7 +55,6 @@ instance
   (Task t ts, TaskMonad t m, StaticPQ m, RunTasks tt m, MonadUnliftIO m) =>
   RunTasks (t ': tt) m
   where
-
   runTask (PickedTask s (Jsonb v) initialStartTime) | symbolVal @ts Proxy == s =
     case fromJSON @t v of
       A.Error e ->
@@ -79,7 +78,6 @@ instance
   taskNames = symbolVal @ts Proxy : taskNames @tt @m
 
 instance RunTasks '[] m where
-
   runTask (PickedTask s (Jsonb v) _) =
     logError . T.pack $ "Unknown task " <> s <> " with payload " <> show v
 
