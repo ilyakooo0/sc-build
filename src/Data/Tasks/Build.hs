@@ -16,6 +16,7 @@ import Control.Monad.IO.Unlift
 import Control.Task
 import Data.Aeson hiding (Success)
 import qualified Data.ByteString.Lazy.Char8 as BS
+import Data.Char
 import Data.String
 import Data.Submission
 import Data.Submission.Query
@@ -128,7 +129,7 @@ instance Task Build "build-repo" where
               return (buildCode, buildOut, buildErr)
           case dockerRes of
             (ExitFailure n, _, buildErr) -> do
-              let err = BS.unpack buildErr
+              let err = dropWhile (not . isPrint) . BS.unpack $ buildErr
               logError . T.pack $
                 "test command for repo " <> show fullRepoName <> " at sha "
                   <> show sha
