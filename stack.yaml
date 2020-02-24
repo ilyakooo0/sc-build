@@ -46,7 +46,6 @@ extra-deps:
 - git: https://github.com/ilyakooo0/github-app
   commit: 0bede85ab53eb8f953cf6f4e58a756a205e88e0b
 - servant-github-webhook-0.4.2.0
-- docker-0.6.0.3
 - http-client-0.5.14
 - git: https://github.com/ilyakooo0/docker-hs
   commit: ab582760a5e70d5bb4a79cde8bc9440b0fc96c5c
