@@ -40,11 +40,19 @@ instance FromJSON ByteString where
   parseJSON (String s) = return . BS.pack . T.unpack $ s
   parseJSON _ = fail "not a string"
 
+instance ToJSON ByteString where
+  toJSON = String . T.pack . BS.unpack
+
 instance FromJSON Severity where
   parseJSON (String s) = maybe (fail "oh no") return . readMaybe . T.unpack $ s
   parseJSON _ = fail "not a string"
 
+instance ToJSON Severity where
+  toJSON = String . T.pack . show
+
 instance FromJSON Config
+
+instance ToJSON Config
 
 defaultConfig :: Config
 defaultConfig =
