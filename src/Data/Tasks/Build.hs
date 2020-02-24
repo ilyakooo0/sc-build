@@ -129,7 +129,7 @@ instance Task Build "build-repo" where
               return (buildCode, buildOut, buildErr)
           case dockerRes of
             (ExitFailure n, _, buildErr) -> do
-              let err = filter isPrint . BS.unpack $ buildErr
+              let err = filter (\c -> isPrint c || isSpace c) . BS.unpack $ buildErr
               logError . T.pack $
                 "test command for repo " <> show fullRepoName <> " at sha "
                   <> show sha
