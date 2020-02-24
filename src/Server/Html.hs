@@ -44,10 +44,10 @@ getSubmissionR user repo sha' = do
       H.h2 $ toHtml userName
       case status of
         Jsonb BuildScheduled -> do
-          H.h3 "Waiting to build"
+          H.h3 "Waiting to build ⌛"
           restartBuild
         Jsonb (SubmissionFailed err) -> do
-          H.h3 "Failed to build"
+          H.h3 "Failed to build ☠️"
           restartBuild
           H.code . H.pre $ toHtml err
         Jsonb (SubmissionRun (TestResult tests)) -> do
@@ -55,7 +55,7 @@ getSubmissionR user repo sha' = do
               passed = M.size . M.filter Prelude.id $ tests
           H.h3 . toHtml $
             "Tests have run: " <> show passed <> "/" <> show total
-              <> if passed == total then " ✅" else ""
+              <> if passed == total then " ✅" else " 🟨"
           restartBuild
           H.table $ flip M.foldMapWithKey tests $ \testName testPassed -> H.tr $ do
             (H.td H.! A.align "right") . H.p $ toHtml testName
