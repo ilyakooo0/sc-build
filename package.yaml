@@ -52,6 +52,7 @@ library:
   - transformers
   - cassava
   - http-media
+  - utf8-string
 
 executables:
   sc-build-exe:

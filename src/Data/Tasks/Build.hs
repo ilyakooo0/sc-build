@@ -16,7 +16,7 @@ import Control.Monad.IO.Unlift
 import Control.Task
 import Data.Aeson hiding (Success)
 import qualified Data.ByteString.Lazy.Char8 as BS
-import Data.Char
+import qualified Data.ByteString.Lazy.UTF8 as BS
 import Data.String
 import Data.Submission
 import Data.Submission.Query
@@ -55,7 +55,7 @@ instance Task Build "build-repo" where
       (shellCode, _, shellErr) <- readProcess . setWorkingDir dir $ shell preProcessShell
       case shellCode of
         ExitFailure n -> do
-          let err = BS.unpack shellErr
+          let err = BS.toString shellErr
           logError . T.pack $
             "preprocessing command for repo " <> show fullRepoName <> " at sha "
               <> show sha
@@ -129,7 +129,7 @@ instance Task Build "build-repo" where
               return (buildCode, buildOut, buildErr)
           case dockerRes of
             (ExitFailure n, _, buildErr) -> do
-              let err = filter (\c -> isPrint c || isSpace c) . BS.unpack $ buildErr
+              let err = BS.toString buildErr
               logError . T.pack $
                 "test command for repo " <> show fullRepoName <> " at sha "
                   <> show sha
@@ -142,7 +142,7 @@ instance Task Build "build-repo" where
             (ExitSuccess, buildOut, _) ->
               case eitherDecode' (BS.dropWhile (/= '{') buildOut) of
                 Left err' -> do
-                  let err = err' <> " " <> BS.unpack buildOut
+                  let err = err' <> " " <> BS.toString buildOut
                   logError . T.pack $
                     "could not decode test result from repo " <> show fullRepoName
                       <> " at sha "
@@ -150,7 +150,7 @@ instance Task Build "build-repo" where
                       <> ": "
                       <> err
                   scheduleFailedStatus err owner repoName sha
-                  updateSubmissionStatus fullRepoName sha' (SubmissionFailed (err <> BS.unpack buildOut))
+                  updateSubmissionStatus fullRepoName sha' (SubmissionFailed (err <> BS.toString buildOut))
                 Right testResult@TestResult {..} -> do
                   scheduleTestedStatus testResult owner repoName sha
                   updateSubmissionStatus fullRepoName sha' (SubmissionRun testResult)
