@@ -53,6 +53,7 @@ library:
   - cassava
   - http-media
   - utf8-string
+  - conduit-extra
 
 executables:
   sc-build-exe:
