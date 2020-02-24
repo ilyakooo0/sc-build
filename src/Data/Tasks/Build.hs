@@ -17,7 +17,6 @@ import Control.Task
 import Data.Aeson hiding (Success)
 import qualified Data.ByteString.Lazy.Char8 as BS
 import qualified Data.ByteString.Lazy.UTF8 as BS
-import qualified Data.Conduit.Binary as Conduit
 import Data.String
 import Data.Submission
 import Data.Submission.Query
@@ -107,7 +106,7 @@ instance Task Build "build-repo" where
               buildCode <- ExceptT $ waitDockerForever cid
               buildOut <-
                 ExceptT $
-                  D.getContainerLogsStream
+                  D.getContainerLogs
                     D.LogOpts
                       { stdout = True,
                         stderr = False,
@@ -116,10 +115,9 @@ instance Task Build "build-repo" where
                         tail = D.All
                       }
                     cid
-                    Conduit.sinkLbs
               buildErr <-
                 ExceptT $
-                  D.getContainerLogsStream
+                  D.getContainerLogs
                     D.LogOpts
                       { stdout = True,
                         stderr = True,
@@ -128,7 +126,6 @@ instance Task Build "build-repo" where
                         tail = D.All
                       }
                     cid
-                    Conduit.sinkLbs
               return (buildCode, buildOut, buildErr)
           case dockerRes of
             (ExitFailure n, _, buildErr) -> do
