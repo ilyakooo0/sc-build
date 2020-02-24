@@ -17,6 +17,7 @@ dependencies:
 library:
   source-dirs: src
   dependencies:
+  - http-client-tls
   - servant
   - servant-server
   - process

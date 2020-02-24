@@ -14,8 +14,12 @@ import Control.Monad.Except
 import Control.Monad.IO.Unlift
 import Control.Monad.Reader
 import Control.Task.Scheduler
+import Crypto.PubKey.RSA.Read
 import Data.Aeson
 import Data.ByteString
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSC
+import qualified Data.ByteString.Lazy.Char8 as BSCL
 import qualified Data.Csv as Csv
 import Data.IORef
 import Data.Map (Map)
@@ -30,9 +34,11 @@ import GHC.Generics
 import GitHub hiding (Accept)
 import GitHub.App.Auth
 import GitHub.App.Request
+import GitHub.Auth (Auth (OAuth))
 import GitHub.Data.Name
 import GitHub.Data.Webhooks.Events
 import GitHub.Data.Webhooks.Payload
+import Network.HTTP.Client.TLS (newTlsManager)
 import Network.HTTP.Media.MediaType
 import Network.Wai.Handler.Warp
 import Servant
@@ -44,7 +50,7 @@ import Server.Schema
 import Squeal.PostgreSQL
 import System.IO
 import Text.Blaze.Html
-import UnliftIO.Exception (catch, throwIO, try)
+import UnliftIO.Exception (catch, displayException, handleAny, throwIO, try)
 
 type API =
   "github-webhook"
@@ -161,6 +167,10 @@ runServer :: IO ()
 runServer = do
   c@Config {..} <- getConfig
   print c
+  pem <- BS.readFile appPkPemPath
+  appPkPem <- case readRsaPem pem of
+    Right k -> return k
+    Left e -> error (show e)
   auth <- mkInstallationAuth (AppAuth appId appPkPem) installationId
   ts <- newIORef mempty
   pool <- createConnectionPool databseUrl 1 0.5 10
@@ -173,8 +183,6 @@ runServer = do
       serverData =
         ServerData
           { githubAppAuth = auth,
-            githubUserName = GithubUserName githubUsername,
-            githubAccessToken = GithubAccessToken personalAccessToken,
             tasks = ts,
             logger = cfilter ((logSeverity <=) . msgSeverity) richMessageAction,
             baseUrl = baseSiteUrl,
@@ -183,17 +191,21 @@ runServer = do
       repeatIfNotEmpty n f = f >>= \m -> do
         when (m == 0) $ liftIO $ threadDelay n
         repeatIfNotEmpty n f
+      printingErrors =
+        handleAny (logError . T.pack . displayException >=> const (return 0))
   _ <-
     forkIO . repeatIfNotEmpty (10 ^ (6 :: Int))
       . usingConnectionPool pool
       . (`runReaderT` serverData)
       . unApp
+      . printingErrors
       $ runTasks @'[Build] 1
   _ <-
     forkIO . repeatIfNotEmpty (10 ^ (6 :: Int))
       . usingConnectionPool pool
       . (`runReaderT` serverData)
       . unApp
+      . printingErrors
       $ runTasks @'[StatusUpdate] 5
   run port $ serveWithContext (Proxy @API) context $
     hoistServerWithContext
@@ -211,8 +223,6 @@ updateTasks ref path =
 data ServerData m
   = ServerData
       { githubAppAuth :: !InstallationAuth,
-        githubUserName :: !GithubUserName,
-        githubAccessToken :: !GithubAccessToken,
         tasks :: IORef TasksConfig,
         logger :: LogAction m Message,
         baseUrl :: String,
@@ -227,10 +237,18 @@ gitPolyHubKey k = PolyGitHubKey (Servant.GitHub.Webhook.gitHubKey k)
 instance HasContextEntry '[PolyGitHubKey] (GitHubKey result) where
   getContextEntry (PolyGitHubKey x :. _) = x
 
-instance MonadReader (ServerData n) m => GithubCloner m where
-  getGithubAccessToken = asks githubAccessToken
-
-  getGithubUserName = asks githubUserName
+instance (MonadReader (ServerData n) m, MonadIO m, MonadError ServerError m) => GithubCloner m where
+  getGithubInstallationToken =
+    either
+      (\e -> throwError err500 {errBody = BSCL.pack . displayException $ e})
+      return
+      <=< runExceptT
+      $ do
+        iAuth <- asks githubAppAuth
+        manager <- newTlsManager
+        liftIO (obtainAccessToken manager iAuth) >>= either throwError return >>= \case
+          OAuth token -> return $ InstallationToken (BSC.unpack token)
+          _ -> throwError $ UserError "Not OAuth token. This should never happen."
 
 instance (MonadIO m, MonadReader (ServerData n) m) => AppRequestable m where
   appRequest req = do

@@ -46,7 +46,7 @@ data Build
   deriving (Eq, Show, Generic, FromJSON, ToJSON)
 
 instance Task Build "build-repo" where
-  type TaskMonad Build m = (MonadUnliftIO m, GithubCloner m, StaticPQ m, HasDockerInfo m)
+  type TaskMonad Build m = (MonadUnliftIO m, StaticPQ m, HasDockerInfo m, GithubCloner m)
 
   performTask Build {..} =
     bracket createDir (liftIO . removePathForcibly) $ \dir -> flip catchAny (const $ return Failure) $ do
@@ -190,10 +190,9 @@ createDir = do
 
 cloneRepo :: (MonadIO m, GithubCloner m) => String -> String -> FilePath -> m ()
 cloneRepo repoName sha path = do
-  GithubAccessToken token <- getGithubAccessToken
-  GithubUserName username <- getGithubUserName
+  InstallationToken token <- getGithubInstallationToken
   runProcess_ . setWorkingDir path . fromString $
-    "git clone https://" <> username <> ":" <> token <> "@github.com/" <> repoName <> ".git ."
+    "git clone https://x-access-token:" <> token <> "@github.com/" <> repoName <> ".git ."
   runProcess_ . setWorkingDir path . fromString $ "git checkout " <> sha
   return ()
 

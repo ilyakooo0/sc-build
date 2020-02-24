@@ -1,16 +1,10 @@
 module Control.GithubCloner
-  ( GithubAccessToken (..),
-    GithubUserName (..),
-    GithubCloner (..),
+  ( GithubCloner (..),
+    InstallationToken (..),
   )
 where
 
-newtype GithubAccessToken = GithubAccessToken String
-
-newtype GithubUserName = GithubUserName String
+newtype InstallationToken = InstallationToken String
 
 class GithubCloner m where
-
-  getGithubAccessToken :: m GithubAccessToken
-
-  getGithubUserName :: m GithubUserName
+  getGithubInstallationToken :: m InstallationToken
