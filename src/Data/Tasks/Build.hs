@@ -90,7 +90,7 @@ instance Task Build "build-repo" where
             ExceptT $ D.buildImageFromDockerfile (D.defaultBuildOpts imageName) absDir
             ExceptT $ D.createContainer opts Nothing
           dockerRes <- fmap (either id id)
-            . race (liftIO (threadDelay (timeoutMinutes * 60000000)) >> return (ExitFailure 1, "Time out"))
+            . race (liftIO (threadDelay (timeoutMinutes * 60000000)) >> return (ExitFailure 1, "Time out", "Time out"))
             $ flip
               finally
               ( runDocker $
@@ -114,10 +114,21 @@ instance Task Build "build-repo" where
                         tail = D.All
                       }
                     cid
-              return (buildCode, buildOut)
+              buildErr <-
+                ExceptT $
+                  D.getContainerLogs
+                    D.LogOpts
+                      { stdout = True,
+                        stderr = True,
+                        since = Nothing,
+                        timestamps = False,
+                        tail = D.All
+                      }
+                    cid
+              return (buildCode, buildOut, buildErr)
           case dockerRes of
-            (ExitFailure n, buildOut) -> do
-              let err = BS.unpack buildOut
+            (ExitFailure n, _, buildErr) -> do
+              let err = BS.unpack buildErr
               logError . T.pack $
                 "test command for repo " <> show fullRepoName <> " at sha "
                   <> show sha
@@ -127,7 +138,7 @@ instance Task Build "build-repo" where
                   <> err
               scheduleFailedStatus err owner repoName sha
               updateSubmissionStatus fullRepoName sha' (SubmissionFailed err)
-            (ExitSuccess, buildOut) ->
+            (ExitSuccess, buildOut, _) ->
               case eitherDecode' (BS.dropWhile (/= '{') buildOut) of
                 Left err' -> do
                   let err = err' <> " " <> BS.unpack buildOut
@@ -138,7 +149,7 @@ instance Task Build "build-repo" where
                       <> ": "
                       <> err
                   scheduleFailedStatus err owner repoName sha
-                  updateSubmissionStatus fullRepoName sha' (SubmissionFailed err)
+                  updateSubmissionStatus fullRepoName sha' (SubmissionFailed (err <> BS.unpack buildOut))
                 Right testResult@TestResult {..} -> do
                   scheduleTestedStatus testResult owner repoName sha
                   updateSubmissionStatus fullRepoName sha' (SubmissionRun testResult)
