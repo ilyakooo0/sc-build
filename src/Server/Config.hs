@@ -72,7 +72,7 @@ defaultConfig =
     }
 
 getConfig :: IO Config
-getConfig = decodeThrow "config.yaml"
+getConfig = decodeFileThrow "config.yaml"
 
 -- getConfig :: IO Config
 -- getConfig =

@@ -63,6 +63,8 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - sc-build
+    - bytestring
+    - yaml
   sc-build-migrations:
     main:                Main.hs
     source-dirs:         migrations

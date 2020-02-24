@@ -8,3 +8,4 @@ test-task:
     COPY . src
     WORKDIR /src
     ENTRYPOINT stack test --fast
+  timeoutMinutes: 10
