@@ -31,7 +31,8 @@ data Config
         baseSiteUrl :: !String,
         cfgDockerUrl :: !String,
         cfgDockerFile :: !FilePath,
-        logSeverity :: !Severity
+        logSeverity :: !Severity,
+        builderCount :: !Int
       }
   deriving (Show, Generic)
 
@@ -58,7 +59,8 @@ defaultConfig =
       baseSiteUrl = "http://localhost:8080",
       cfgDockerUrl = "http://localhost:1234",
       cfgDockerFile = "TmpDockerfile",
-      logSeverity = Info
+      logSeverity = Info,
+      builderCount = 2
     }
 
 getConfig :: IO Config

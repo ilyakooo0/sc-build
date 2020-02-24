@@ -193,13 +193,13 @@ runServer = do
         repeatIfNotEmpty n f
       printingErrors =
         handleAny (logError . T.pack . displayException >=> const (return 0))
-  _ <-
-    forkIO . repeatIfNotEmpty (10 ^ (6 :: Int))
+  replicateM_ builderCount
+    $ forkIO . repeatIfNotEmpty (10 ^ (6 :: Int))
       . usingConnectionPool pool
       . (`runReaderT` serverData)
       . unApp
       . printingErrors
-      $ runTasks @'[Build] 1
+    $ runTasks @'[Build] 1
   _ <-
     forkIO . repeatIfNotEmpty (10 ^ (6 :: Int))
       . usingConnectionPool pool

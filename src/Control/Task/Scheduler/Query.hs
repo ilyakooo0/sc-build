@@ -10,6 +10,7 @@ module Control.Task.Scheduler.Query
 where
 
 import Colog
+import Control.Arrow
 import Control.Monad.IO.Unlift
 import Control.Squeal
 import Control.Task
@@ -38,6 +39,7 @@ scheduleTaskQuery task = do
               Set (param @1) `as` #task
                 :* Set (param @2) `as` #payload
                 :* Default `as` #creation_time
+                :* Default `as` #started
           )
           ( OnConflict
               (OnConstraint #pk_task_payload)
@@ -82,7 +84,9 @@ rescheduleTaskQuery payload = do
       query =
         update_
           #tasks
-          (Default `as` #creation_time)
+          ( Default `as` #creation_time
+              :* Default `as` #started
+          )
           (param @1 .== #task .&& param @2 .== #payload)
   dbWrite (const $ return ()) $
     manipulateParams_
@@ -106,11 +110,20 @@ pickTasksQuery tasks limitCount = do
           )
           ( from (table #tasks)
               & where_ (#task `in_` (literal <$> tasks))
-              & orderBy [#creation_time & Asc]
+              & where_ (not_ . notNull $ #started)
               & limit limitCount
           )
-  dbRead (const $ return []) $
-    runQuery query >>= getRows
+      startedMan :: Manipulation_ Schema (String, Jsonb Value) ()
+      startedMan =
+        update_
+          #tasks
+          ( Set true `as` #started
+          )
+          (param @1 .== #task .&& param @2 .== #payload)
+  dbWrite (const $ return []) $ do
+    pickedTasks <- runQuery query >>= getRows
+    traversePrepared_ startedMan $ (task &&& payload) <$> pickedTasks
+    return pickedTasks
 
 data PickedTask
   = PickedTask

@@ -18,7 +18,8 @@ type SchemaV1 =
                   ]
                    :=> '[ "task" ::: 'NoDef :=> 'NotNull (PG Text),
                           "payload" ::: 'NoDef :=> 'NotNull (PG (Jsonb Value)),
-                          "creation_time" ::: 'Def :=> 'NotNull (PG UTCTime)
+                          "creation_time" ::: 'Def :=> 'NotNull (PG UTCTime),
+                          "started" ::: 'Def :=> 'NotNull (PG Bool)
                         ]
                ),
        "submissions"
@@ -34,28 +35,30 @@ type SchemaV1 =
      ]
 
 schemaMigrationV1 :: Migration Definition (Public '[]) SchemaV1
-schemaMigrationV1 = Migration
-  { name = "v1",
-    up =
-      createTable
-        #tasks
-        ( notNullable text `as` #task
-            :* notNullable jsonb `as` #payload
-            :* default_ now (notNullable timestampWithTimeZone) `as` #creation_time
-        )
-        (primaryKey (#task :* #payload) `as` #pk_task_payload)
-        >>> createTable
-          #submissions
-          ( notNullable text `as` #user_name
-              :* notNullable text `as` #repo_full_name
-              :* notNullable text `as` #problem
-              :* notNullable text `as` #sha
-              :* notNullable jsonb `as` #status
+schemaMigrationV1 =
+  Migration
+    { name = "v1",
+      up =
+        createTable
+          #tasks
+          ( notNullable text `as` #task
+              :* notNullable jsonb `as` #payload
+              :* default_ now (notNullable timestampWithTimeZone) `as` #creation_time
+              :* default_ false (notNullable bool) `as` #started
           )
-          (primaryKey (#repo_full_name :* #sha) `as` #pk_submission_repo_full_name_sha)
-        >>> createIndexes,
-    down = dropTable #tasks >>> dropTable #submissions
-  }
+          (primaryKey (#task :* #payload) `as` #pk_task_payload)
+          >>> createTable
+            #submissions
+            ( notNullable text `as` #user_name
+                :* notNullable text `as` #repo_full_name
+                :* notNullable text `as` #problem
+                :* notNullable text `as` #sha
+                :* notNullable jsonb `as` #status
+            )
+            (primaryKey (#repo_full_name :* #sha) `as` #pk_submission_repo_full_name_sha)
+          >>> createIndexes,
+      down = dropTable #tasks >>> dropTable #submissions
+    }
   where
     createIndexes :: Definition sch sch
     createIndexes =
