@@ -48,6 +48,8 @@ extra-deps:
 - servant-github-webhook-0.4.2.0
 - docker-0.6.0.3
 - http-client-0.5.14
+- git: https://github.com/ilyakooo0/docker-hs/tree
+  commit: ab582760a5e70d5bb4a79cde8bc9440b0fc96c5c
 
 # Override default flag values for local packages and extra-deps
 # flags: {}
