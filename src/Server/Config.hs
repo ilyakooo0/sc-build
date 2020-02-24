@@ -30,7 +30,6 @@ data Config
         databseUrl :: !ByteString,
         baseSiteUrl :: !Text,
         cfgDockerUrl :: !String,
-        cfgDockerFile :: !FilePath,
         logSeverity :: !Severity,
         builderCount :: !Int,
         githubContext :: !Text
@@ -67,7 +66,6 @@ defaultConfig =
       databseUrl = "host=localhost port=5432 dbname=sc-build connect_timeout=10",
       baseSiteUrl = "http://localhost:8080",
       cfgDockerUrl = "http://localhost:1234",
-      cfgDockerFile = "TmpDockerfile",
       logSeverity = Info,
       builderCount = 2,
       githubContext = "MY CI NAME"
