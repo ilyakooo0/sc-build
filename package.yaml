@@ -66,6 +66,7 @@ executables:
     - sc-build
     - bytestring
     - yaml
+    - optparse-applicative
   sc-build-migrations:
     main:                Main.hs
     source-dirs:         migrations

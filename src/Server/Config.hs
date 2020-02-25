@@ -71,8 +71,8 @@ defaultConfig =
       githubContext = "MY CI NAME"
     }
 
-getConfig :: IO Config
-getConfig = decodeFileThrow "config.yaml"
+getConfig :: FilePath -> IO Config
+getConfig = decodeFileThrow
 
 -- getConfig :: IO Config
 -- getConfig =

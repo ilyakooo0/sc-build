@@ -161,9 +161,9 @@ instance MonadError ServerError (ServerM schema) where
 server :: ServerT API (ServerM Schema)
 server = (webhookInstallation :<|> webhookPushEvent) :<|> getSubmissionR :<|> retestSubmission :<|> getResults
 
-runServer :: IO ()
-runServer = do
-  c@Config {..} <- getConfig
+runServer :: FilePath -> IO ()
+runServer config = do
+  c@Config {..} <- getConfig config
   print c
   pem <- BS.readFile appPkPemPath
   appPkPem <- case readRsaPem pem of
