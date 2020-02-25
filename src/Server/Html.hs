@@ -39,9 +39,10 @@ getSubmissionR user repo sha' = do
     Nothing ->
       return . ("Not found",) $
         H.h1 "404. not found. go away."
-    Just Submission {..} -> return . (repo,) $ do
+    Just Submission {..} -> return . (problem,) $ do
       H.h1 $ toHtml problem
       H.h2 $ toHtml userName
+      H.h3 . H.code . toHtml . take 7 $ sha
       case status of
         Jsonb BuildScheduled -> do
           H.h3 "Waiting to build ⌛"
