@@ -112,7 +112,9 @@ pickTasksQuery tasks limitCount = do
           ( from (table #tasks)
               & where_ (#task `in_` (literal <$> tasks))
               & where_ (not_ . notNull $ #started)
+              & orderBy [#creation_time & Asc]
               & limit limitCount
+              & orderBy [#creation_time & Desc]
           )
       startedMan :: Manipulation_ Schema (String, Jsonb Value) ()
       startedMan =
