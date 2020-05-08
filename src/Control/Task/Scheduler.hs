@@ -21,6 +21,7 @@ import Data.Word
 import GHC.TypeLits
 import Server.Schema
 import Squeal.PostgreSQL
+import UnliftIO.Exception
 
 scheduleTask ::
   (StaticPQ m, WithLog env Message m, Task t s, MonadUnliftIO m) =>
@@ -66,7 +67,9 @@ instance
             <> e
       A.Success t -> do
         logInfo . T.pack $ "running task " <> task <> " with " <> show t <> " created at " <> show initialStartTime
-        r <- performTask @t @ts @m t
+        r <- performTask @t @ts @m t `catchAny` \e -> do
+          logError . T.pack . displayException $ e
+          return Failure
         when (r == Failure) $ logWarning . T.pack $ "Task " <> task <> " failed"
         case r of
           Success -> completeTaskQuery t
