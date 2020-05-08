@@ -29,6 +29,7 @@ data SubmissionStatus
   = SubmissionRun TestResult
   | SubmissionFailed String
   | BuildScheduled
+  | PastDeadline
   deriving (Generic, FromJSON, ToJSON, Eq, Show)
 
 newtype TestResult

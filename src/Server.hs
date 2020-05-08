@@ -30,6 +30,7 @@ import Data.Submission.Query
 import Data.Tasks.Build
 import Data.Tasks.StatusUpdate
 import qualified Data.Text as T
+import Data.Time.Clock
 import Data.Yaml
 import GHC.Generics
 import GitHub hiding (Accept)
@@ -49,7 +50,6 @@ import Server.Config
 import Server.Html
 import Server.Schema
 import Squeal.PostgreSQL
-import System.IO
 import Text.Blaze.Html
 import UnliftIO.Exception (catch, displayException, handleAny, throwIO, try)
 
@@ -75,14 +75,18 @@ type API =
       :> Post '[HTML] Markup
     :<|> "results" :> Capture "task name" String :> Get '[CSV, HTML] [Score]
 
-webhookInstallation :: MonadIO m => RepoWebhookEvent -> ((), InstallationEvent) -> m ()
+webhookInstallation :: WithLog env Message m => RepoWebhookEvent -> ((), InstallationEvent) -> m ()
 webhookInstallation _ ((), ev) =
-  liftIO $ do
-    print ev
-    hFlush stdout
+  logInfo . T.pack . show $ ev
 
 webhookPushEvent ::
-  (StaticPQ m, MonadReader (ServerData m) m, MonadUnliftIO m, HasTasks m, MonadError ServerError m) =>
+  ( StaticPQ m,
+    MonadReader (ServerData m) m,
+    MonadUnliftIO m,
+    HasTasks m,
+    MonadError ServerError m,
+    WithLog env Message m
+  ) =>
   RepoWebhookEvent ->
   ((), PushEvent) ->
   m ()
@@ -100,18 +104,28 @@ webhookPushEvent _ ((), ev) = do
           M.takeWhileAntitone (repoName >) tasks
   case task of
     Just (name, TaskConfig {..}) | T.take (T.length name) repoName == name -> do
-      schedulePendingStatus (N owner) (N repoName) (N sha)
-      createSubmission $
-        Submission
-          user
-          (T.unpack fullRepoName)
-          (T.unpack name)
-          (T.unpack sha)
-          (Jsonb BuildScheduled)
-      scheduleTask $ Build prebuild dockerfile (N owner) (N repoName) (N sha) timeoutMinutes
-      liftIO $ do
-        print ev
-        hFlush stdout
+      nowTime <- liftIO getCurrentTime
+      if nowTime > deadline
+        then do
+          deadlineHasPassedStatus (N owner) (N repoName) (N sha)
+          createSubmission $
+            Submission
+              user
+              (T.unpack fullRepoName)
+              (T.unpack name)
+              (T.unpack sha)
+              (Jsonb PastDeadline)
+        else do
+          schedulePendingStatus (N owner) (N repoName) (N sha)
+          createSubmission $
+            Submission
+              user
+              (T.unpack fullRepoName)
+              (T.unpack name)
+              (T.unpack sha)
+              (Jsonb BuildScheduled)
+          scheduleTask $ Build prebuild dockerfile (N owner) (N repoName) (N sha) timeoutMinutes
+      logInfo . T.pack . show $ ev
     _ -> return ()
 
 retestSubmission ::
@@ -315,6 +329,21 @@ instance (MonadReader (ServerData m) m, StaticPQ m, MonadUnliftIO m) => HasGithu
                 newStatusContext = Just c
               }
     scheduleTask status
+  deadlineHasPassedStatus nOwner@(N owner) nRepo@(N repo) nCommit@(N sha) = do
+    h <- asks baseUrl
+    c <- asks context
+    let status =
+          StatusUpdate
+            nOwner
+            nRepo
+            nCommit
+            NewStatus
+              { newStatusState = StatusError,
+                newStatusTargetUrl = Just . URL $ h <> "/submission/" <> owner <> "/" <> repo <> "/" <> sha,
+                newStatusDescription = Just "The deadline has passed ⏰",
+                newStatusContext = Just c
+              }
+    scheduleTask status
 
 instance (MonadReader (ServerData n) m) => HasDockerInfo m where
   getDockerUrl = asks dockerUrl
@@ -325,7 +354,8 @@ data TaskConfig
   = TaskConfig
       { prebuild :: String,
         dockerfile :: String,
-        timeoutMinutes :: Int
+        timeoutMinutes :: Int,
+        deadline :: UTCTime
       }
   deriving stock (Show, Eq, Generic)
   deriving anyclass (FromJSON, ToJSON)

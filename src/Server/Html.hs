@@ -61,6 +61,8 @@ getSubmissionR user repo sha' = do
           H.table $ flip M.foldMapWithKey tests $ \testName testPassed -> H.tr $ do
             (H.td H.! A.align "right") . H.p $ toHtml testName
             H.td $ if testPassed then "✅" else "❌"
+        Jsonb PastDeadline ->
+          H.h3 "This was submitted after the deadline ⏰"
   return . docTypeHtml $ do
     H.head $ do
       H.title $ toHtml titleText
