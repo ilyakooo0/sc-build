@@ -41,6 +41,7 @@ scheduleTaskQuery task = do
                 :* Set (param @2) `as` #payload
                 :* Default `as` #creation_time
                 :* Default `as` #started
+                :* Default `as` #failures
           )
           ( OnConflict
               (OnConstraint #pk_task_payload)
@@ -87,6 +88,7 @@ rescheduleTaskQuery payload = do
           #tasks
           ( Default `as` #creation_time
               :* Default `as` #started
+              :* Set (#failures + 1) `as` #failures
           )
           (param @1 .== #task .&& param @2 .== #payload)
   dbWrite (const $ return ()) $
@@ -112,6 +114,7 @@ pickTasksQuery tasks limitCount = do
           ( from (table #tasks)
               & where_ (#task `in_` (literal <$> tasks))
               & where_ (not_ . notNull $ #started)
+              & where_ (#failures .< 20)
               & orderBy [#creation_time & Asc]
               & limit limitCount
               & orderBy [#creation_time & Desc]
