@@ -101,7 +101,7 @@ pickTasksQuery ::
   Word64 ->
   m [PickedTask]
 pickTasksQuery tasks limitCount = do
-  logDebug "reading tasks"
+  logDebug $ "reading tasks " <> T.unwords (T.pack <$> tasks)
   let query :: Query_ Schema () PickedTask
       query =
         select_
